@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="dark">
+<title>I-Mirror</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main id="pair" class="card">
+  <h1>I-Mirror</h1>
+  <p class="sub">Made by Deva, for Deva</p>
+  <p>Enter the 6-digit code shown on your phone.</p>
+  <input id="pin" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="000000" aria-label="6-digit code">
+  <button id="go" type="button">Connect</button>
+  <p id="pairmsg" role="status" aria-live="polite"></p>
+  <p class="fine">Your phone's screen is end-to-end encrypted to this iPad. The code is never sent over the network.</p>
+</main>
+
+<section id="viewer" hidden>
+  <header>
+    <strong>I-Mirror</strong>
+    <span class="grow"></span>
+    <span id="stat" class="stat" role="status">Encrypted</span>
+    <label class="sel">Quality
+      <select id="quality" aria-label="Quality">
+        <option value="0">Fast</option>
+        <option value="1" selected>Balanced</option>
+        <option value="2">Sharp</option>
+      </select>
+    </label>
+    <button id="full" type="button">Full screen</button>
+    <button id="off" type="button" class="danger">Disconnect</button>
+  </header>
+  <div id="stage"><canvas id="view" aria-label="Your phone screen"></canvas></div>
+</section>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
