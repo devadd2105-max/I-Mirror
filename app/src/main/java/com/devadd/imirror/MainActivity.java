@@ -13,7 +13,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.WindowManager;
+import android.provider.Settings;
 import android.widget.Button;
+import android.widget.Switch;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -23,7 +25,8 @@ public class MainActivity extends Activity {
     private static final int REQ_CAPTURE = 1, REQ_NOTIFICATIONS = 2;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private TextView status, pin, urls, help;
-    private Button button;
+    private Button button, access;
+    private Switch control;
     private final Runnable tick = new Runnable() {
         @Override public void run() { refresh(); ui.postDelayed(this, 700); }
     };
@@ -75,6 +78,18 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
         lp.topMargin = dp(24);
         col.addView(button, lp);
+        control = new Switch(this);
+        control.setText("Touch control from the iPad");
+        control.setTextColor(0xFFE8EEFC);
+        control.setTextSize(16);
+        control.setPadding(0, dp(20), 0, dp(4));
+        control.setOnCheckedChangeListener((v, on) -> { MirrorService.STATE.control = on; refresh(); });
+        col.addView(control);
+        access = new Button(this);
+        access.setAllCaps(false);
+        access.setText("Turn on I-Mirror in Accessibility settings");
+        access.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+        col.addView(access);
         col.addView(text("Your screen goes only to an iPad that types the code, over your own Wi-Fi, end-to-end encrypted. Nothing goes to the internet.",
                 13, 0xFF8D9BB8, false));
         ScrollView sv = new ScrollView(this);
@@ -108,6 +123,9 @@ public class MainActivity extends Activity {
 
     private void refresh() {
         MirrorService.State s = MirrorService.STATE;
+        boolean svc = TouchService.isRunning();
+        if (control.isChecked() != s.control) control.setChecked(s.control);
+        access.setVisibility(s.control && !svc ? android.view.View.VISIBLE : android.view.View.GONE);
         if (s.running) {
             button.setText("Stop mirroring");
             status.setText(s.client ? "iPad connected" : "Waiting for your iPad");
@@ -118,7 +136,10 @@ public class MainActivity extends Activity {
             if (s.urls.isEmpty()) sb.append("(join the same Wi-Fi as the iPad first)");
             for (String u : s.urls) sb.append(u).append('\n');
             urls.setText(sb.toString().trim());
-            help.setText("Safari warns about the certificate because your phone made it itself. Tap Show Details, then visit this website. Then type the code above.");
+            String h = "Safari warns about the certificate because your phone made it itself. Tap Show Details, then visit this website. Then type the code above.";
+            if (s.control) h += svc ? "\n\nThe iPad can touch this phone. Switch it off to go back to view only."
+                    : "\n\nOne more step: Accessibility settings > Installed apps > I-Mirror touch control > On. If it is greyed out, open the app's info page, tap the three dots, and choose Allow restricted settings.";
+            help.setText(h);
         } else {
             button.setText("Start mirroring");
             status.setText(s.error.isEmpty() ? "Not mirroring" : s.error);

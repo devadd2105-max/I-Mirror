@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_desc">Lets the iPad you paired with tap, swipe and press Back, Home and Recents on this phone while I-Mirror is mirroring and Touch control is switched on. It cannot read what is on your screen.</string>
+</resources>

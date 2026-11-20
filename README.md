@@ -18,6 +18,16 @@ The **Quality** menu on the iPad switches between Fast, Balanced and Sharp.
 
 Every push to `main` builds the app on GitHub: open **Actions**, pick the latest run, download the **I-Mirror-apk** artifact, unzip it, and copy `app-debug.apk` to the phone. Allow installs from your browser or Files app when asked. Play Protect may warn about an unknown app, since it is a debug build you made yourself.
 
+## Touch control (iPad controls the phone)
+
+Off by default. To use it:
+
+1. On the phone, switch on **Touch control from the iPad**, then tap the button to open Accessibility settings.
+2. Turn on **I-Mirror touch control** (Installed apps). If it is greyed out, open the app's info page, tap the three dots, choose **Allow restricted settings**, and try again.
+3. On the iPad, touch the picture to tap and drag to swipe. Back, Home and Recents buttons appear in the top bar. **Touch: off** pauses it from the iPad.
+
+Android only lets an app inject touches through an accessibility service, which is why step 2 exists. The service reads nothing from the screen.
+
 ## How it works
 
 - `app/src/main/java/.../core/`: plain Java server, SRP pairing, encrypted channel. Tested without Android.
@@ -35,6 +45,6 @@ See [SECURITY.md](SECURITY.md) for the protections and the limits.
 
 ## Limits
 
-- View only. Touching the iPad does not control the phone.
+- View only unless you switch on touch control (below).
 - Apps that block screen capture (some banking, video and DRM apps) show black.
 - Both devices must be on the same Wi-Fi, and the network must allow devices to reach each other (guest and school Wi-Fi often do not).

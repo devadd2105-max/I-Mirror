@@ -28,7 +28,7 @@ class Harness:
                         "-dname", "CN=I-Mirror test", "-validity", "30", "-storetype", "PKCS12", "-keystore", str(ks),
                         "-storepass", "testpw", "-keypass", "testpw"], check=True, capture_output=True)
         self.p = subprocess.Popen(["java", "-cp", str(classes), "TestHarness", str(ks), str(ROOT / "app/src/main/assets/web"), "18443"],
-                                  stdout=subprocess.PIPE, text=True, env={"PATH": "/usr/bin:/bin:/usr/local/bin"})
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env={"PATH": "/usr/bin:/bin:/usr/local/bin"})
         self.lines = queue.Queue()
         self.pin = None
         self.log = []
@@ -54,6 +54,10 @@ class Harness:
             except queue.Empty:
                 pass
         raise AssertionError(f"timed out waiting for {pattern}; log: {self.log[-8:]}")
+
+    def say(self, line):
+        self.p.stdin.write(line + "\n")
+        self.p.stdin.flush()
 
     def new_pin(self, old, timeout=10):
         end = time.time() + timeout
@@ -213,6 +217,44 @@ def test_garbage_after_the_handshake_is_dropped_without_a_crash(srv, page):
     pg.fill("#pin", srv.pin)
     wait_js(pg, "window.__imirror.connected")
     disconnect(pg, srv)
+
+
+def drag(pg, x0, y0, x1, y1):
+    r = pg.evaluate("(() => { const r = document.querySelector('#view').getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; })()")
+    pg.mouse.move(r[0] + r[2] * x0, r[1] + r[3] * y0)
+    pg.mouse.down()
+    pg.mouse.move(r[0] + r[2] * x1, r[1] + r[3] * y1, steps=4)
+    pg.mouse.up()
+
+
+def test_touch_and_buttons_reach_the_phone_only_when_allowed(srv, page):
+    pg, _ = page
+    srv.say("control off")
+    time.sleep(0.2)
+    pg.goto(srv.base)
+    pg.fill("#pin", srv.pin)
+    wait_js(pg, "window.__imirror.connected")
+    time.sleep(0.5)
+    assert pg.is_hidden("#nav")                           # the owner has not allowed control: view only
+    drag(pg, 0.2, 0.2, 0.3, 0.3)
+    time.sleep(0.4)
+    assert not [l for l in srv.log if l.startswith("TOUCH")]
+    srv.say("control on")                                 # the owner switches it on while connected
+    wait_js(pg, "!document.querySelector('#nav').hidden")
+    drag(pg, 0.5, 0.25, 0.5, 0.75)
+    srv.wait(r"TOUCH 0 (0\.5\d\d) (0\.2\d\d)")
+    srv.wait(r"TOUCH 1 ")
+    assert srv.wait(r"TOUCH (2) (0\.5\d\d) (0\.7\d\d)")[0] == "2"
+    pg.click("[data-nav='1']")
+    assert srv.wait(r"BUTTON (\d)") == ("1",)
+    pg.click("#touch")                                    # the iPad can also pause touch itself
+    n = len([l for l in srv.log if l.startswith("TOUCH")])
+    drag(pg, 0.4, 0.4, 0.5, 0.5)
+    time.sleep(0.4)
+    assert len([l for l in srv.log if l.startswith("TOUCH")]) == n
+    assert pg.errors == []
+    disconnect(pg, srv)
+    srv.say("control off")
 
 
 def test_wrong_codes_lock_out_and_the_right_code_waits(srv, page):

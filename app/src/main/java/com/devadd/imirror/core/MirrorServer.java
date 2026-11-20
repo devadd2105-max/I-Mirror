@@ -29,8 +29,10 @@ import javax.net.ssl.SSLSocket;
  * HTTPS server for the viewer page plus one encrypted WebSocket session.
  *
  * Wire format after pairing (everything is AES-GCM sealed, first plaintext byte is the type):
- *   server to client: 0x01 frame (w:int32, h:int32, JPEG bytes), 0x03 ready
- *   client to server: 0x10 ping, 0x11 quality (one byte: 0 low, 1 balanced, 2 high)
+ *   server to client: 0x01 frame (w:int32, h:int32, JPEG bytes), 0x03 ready, 0x04 control on/off (one byte)
+ *   client to server: 0x10 ping, 0x11 quality (one byte: 0 low, 1 balanced, 2 high),
+ *                     0x12 touch (kind: 0 down, 1 move, 2 up, 3 cancel; x, y as uint16 of 65535),
+ *                     0x13 button (0 back, 1 home, 2 recents)
  * Pairing uses plain text frames: HELLO, CHAL, PROOF, OK, ERR.
  */
 public final class MirrorServer implements Closeable {
@@ -40,6 +42,12 @@ public final class MirrorServer implements Closeable {
 
     public interface Controls {
         void onQuality(int level);
+    }
+
+    /** Touch and button input from the paired viewer. Only called while control is switched on. */
+    public interface Input {
+        void onTouch(int kind, float x, float y);
+        void onButton(int code);
     }
 
     static final String GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -69,6 +77,8 @@ public final class MirrorServer implements Closeable {
     private final AtomicBoolean busy = new AtomicBoolean();
     private volatile SSLServerSocket server;
     private volatile Session session;
+    private volatile Input input;
+    private volatile boolean controlOn;
     private volatile byte[] lastJpeg;
     private volatile int lastW, lastH;
 
@@ -97,6 +107,15 @@ public final class MirrorServer implements Closeable {
             }
         }
         throw last != null ? last : new IOException("no free port");
+    }
+
+    public void setInput(Input in) { input = in; }
+
+    /** Tells the viewer whether it may control the phone (the phone's owner decides). */
+    public void setControlAvailable(boolean on) {
+        controlOn = on;
+        Session s = session;
+        if (s != null) s.poke();
     }
 
     public boolean wantsFrames() { return session != null; }
@@ -292,7 +311,7 @@ public final class MirrorServer implements Closeable {
         private byte[] frame;
         private int fw, fh;
         private volatile boolean dead;
-        private int lastLevel = -1;
+        private int lastLevel = -1, ctlSent = -1;
 
         Session(Socket sock, WebSocketConn ws, SecureChannel chan) {
             this.sock = sock;
@@ -302,6 +321,10 @@ public final class MirrorServer implements Closeable {
 
         void offer(byte[] jpeg, int w, int h) {
             synchronized (lock) { frame = jpeg; fw = w; fh = h; lock.notifyAll(); }
+        }
+
+        void poke() {
+            synchronized (lock) { lock.notifyAll(); }
         }
 
         void kill() {
@@ -332,6 +355,21 @@ public final class MirrorServer implements Closeable {
                         if (p[1] != lastLevel) { lastLevel = p[1]; controls.onQuality(p[1]); }
                         continue;
                     }
+                    if (p[0] == 0x12 && p.length == 6) {
+                        Input in = input;
+                        int kind = p[1];
+                        if (kind < 0 || kind > 3) break;
+                        if (in != null && controlOn) {
+                            int x = ((p[2] & 0xff) << 8) | (p[3] & 0xff), y = ((p[4] & 0xff) << 8) | (p[5] & 0xff);
+                            in.onTouch(kind, x / 65535f, y / 65535f);
+                        }
+                        continue;
+                    }
+                    if (p[0] == 0x13 && p.length == 2 && p[1] >= 0 && p[1] <= 2) {
+                        Input in = input;
+                        if (in != null && controlOn) in.onButton(p[1]);
+                        continue;
+                    }
                     break;                                    // anything else is a protocol error
                 }
             } catch (IOException | SecureChannel.ChannelException e) {
@@ -344,12 +382,18 @@ public final class MirrorServer implements Closeable {
         private void writeLoop() {
             try {
                 while (!dead) {
-                    byte[] f; int w, h;
+                    byte[] f; int w, h, want;
                     synchronized (lock) {
-                        while (frame == null && !dead) lock.wait();
+                        while (!dead && frame == null && ctlSent == (controlOn ? 1 : 0)) lock.wait();
                         if (dead) return;
                         f = frame; w = fw; h = fh; frame = null;
+                        want = controlOn ? 1 : 0;
                     }
+                    if (want != ctlSent) {
+                        sendSealed(new byte[] {0x04, (byte) want});
+                        ctlSent = want;
+                    }
+                    if (f == null) continue;
                     ByteBuffer b = ByteBuffer.allocate(9 + f.length);
                     b.put((byte) 0x01).putInt(w).putInt(h).put(f);
                     sendSealed(b.array());

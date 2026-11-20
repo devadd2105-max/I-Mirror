@@ -96,6 +96,7 @@ function sendSecure(bytes) {
 function onSecure(p) {
   if (!p.length) return;
   if (p[0] === 0x03) { ready(); return; }
+  if (p[0] === 0x04 && p.length === 2) { setControl(p[1] === 1); return; }
   if (p[0] === 0x01 && p.length > 9) {
     const dv = new DataView(p.buffer, p.byteOffset, p.byteLength);
     showFrame(new Blob([p.subarray(9)], { type: "image/jpeg" }), dv.getUint32(1), dv.getUint32(5));
@@ -129,6 +130,51 @@ setInterval(() => {
   $("#stat").textContent = `Encrypted · ${fps} fps`;
 }, 1000);
 
+// ---------------------------------------------------------------- touch control
+// The phone's owner switches control on; until then this page can only watch.
+let controlOn = false, touchOn = true, activePointer = null;
+function setControl(on) {
+  controlOn = on;
+  $("#nav").hidden = !on;
+  if (!on) activePointer = null;
+}
+function sendTouch(kind, e) {
+  const r = view.getBoundingClientRect();
+  const x = Math.round(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * 65535);
+  const y = Math.round(Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) * 65535);
+  sendSecure(Uint8Array.of(0x12, kind, x >> 8, x & 255, y >> 8, y & 255));
+}
+const live = () => controlOn && touchOn && connected;
+view.addEventListener("pointerdown", (e) => {
+  if (!live() || activePointer !== null || (e.pointerType === "mouse" && e.button !== 0)) return;
+  e.preventDefault();
+  activePointer = e.pointerId;
+  try { view.setPointerCapture(e.pointerId); } catch {}
+  sendTouch(0, e);
+});
+view.addEventListener("pointermove", (e) => {
+  if (e.pointerId !== activePointer) return;
+  e.preventDefault();
+  sendTouch(1, e);
+});
+const lift = (kind) => (e) => {
+  if (e.pointerId !== activePointer) return;
+  e.preventDefault();
+  activePointer = null;
+  sendTouch(kind, e);
+};
+view.addEventListener("pointerup", lift(2));
+view.addEventListener("pointercancel", lift(3));
+view.addEventListener("contextmenu", (e) => e.preventDefault());
+$("#touch").addEventListener("click", () => {
+  touchOn = !touchOn;
+  $("#touch").textContent = touchOn ? "Touch: on" : "Touch: off";
+  $("#touch").setAttribute("aria-pressed", String(touchOn));
+});
+document.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => {
+  if (controlOn && connected) sendSecure(Uint8Array.of(0x13, Number(b.dataset.nav)));
+}));
+
 // ---------------------------------------------------------------- session
 function ready() {
   if (connected) return;
@@ -145,6 +191,7 @@ function lost(msg) {
   clearInterval(keepAlive);
   try { ws && ws.close(); } catch {}
   ws = null; secureP = null; bin.length = 0; pending = null;
+  setControl(false);
   $("#viewer").hidden = true;
   $("#pair").hidden = false;
   $("#go").disabled = false;

@@ -31,9 +31,25 @@ public class TestHarness {
                 (connected, addr) -> { System.out.println("CLIENT " + (connected ? "up" : "down")); System.out.flush(); },
                 level -> { System.out.println("QUALITY " + level); System.out.flush(); });
         holder[0] = server;
+        server.setInput(new MirrorServer.Input() {
+            public void onTouch(int k, float x, float y) { System.out.printf("TOUCH %d %.3f %.3f%n", k, x, y); System.out.flush(); }
+            public void onButton(int c) { System.out.println("BUTTON " + c); System.out.flush(); }
+        });
+        server.setControlAvailable(a.length > 3 && a[3].equals("control"));
         int port = server.start(Integer.parseInt(a[2]));
         System.out.println("PORT " + port);
         System.out.flush();
+        Thread cmd = new Thread(() -> {
+            try (java.util.Scanner sc = new java.util.Scanner(System.in)) {
+                while (sc.hasNextLine()) {
+                    String l = sc.nextLine().trim();
+                    if (l.equals("control on")) server.setControlAvailable(true);
+                    if (l.equals("control off")) server.setControlAvailable(false);
+                }
+            }
+        });
+        cmd.setDaemon(true);
+        cmd.start();
         Thread t = new Thread(() -> {
             int n = 0;
             try {

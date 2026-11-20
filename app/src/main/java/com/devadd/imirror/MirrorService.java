@@ -38,7 +38,7 @@ public class MirrorService extends Service {
 
     /** What the screen shows. Read from the main thread, written from here. */
     static final class State {
-        volatile boolean running, client;
+        volatile boolean running, client, control;     // control: the owner has allowed touch control
         volatile String pin = "", error = "";
         volatile List<String> urls = Collections.emptyList();
     }
@@ -57,7 +57,8 @@ public class MirrorService extends Service {
     private final Runnable refreshPin = new Runnable() {
         @Override public void run() {
             if (pairing != null) pairing.pin();         // renews an expired code
-            main.postDelayed(this, 15_000);
+            if (server != null) server.setControlAvailable(controlOn());
+            main.postDelayed(this, 1_000);
         }
     };
 
@@ -105,6 +106,11 @@ public class MirrorService extends Service {
             ScreenCapturer c = capturer;
             if (c != null) c.setLevel(level);
         });
+        server.setInput(new MirrorServer.Input() {
+            @Override public void onTouch(int kind, float x, float y) { if (controlOn()) TouchService.touch(kind, x, y); }
+            @Override public void onButton(int code) { if (controlOn()) TouchService.button(code); }
+        });
+        server.setControlAvailable(controlOn());
         int port = server.start(FIRST_PORT);
         STATE.urls = addresses(port);
 
@@ -125,8 +131,11 @@ public class MirrorService extends Service {
             // locks only help with speed
         }
         STATE.running = true;
-        main.postDelayed(refreshPin, 15_000);
+        main.postDelayed(refreshPin, 1_000);
     }
+
+    /** Touch control needs the owner's switch and the accessibility service. */
+    private static boolean controlOn() { return STATE.control && TouchService.isRunning(); }
 
     private static List<String> addresses(int port) {
         List<String> out = new ArrayList<>();
@@ -157,6 +166,7 @@ public class MirrorService extends Service {
         capturer = null; server = null; pairing = null; projection = null; wake = null; wifi = null;
         STATE.running = false;
         STATE.client = false;
+        STATE.control = false;                  // touch control is off again next time
         STATE.pin = "";
         stopForeground(STOP_FOREGROUND_REMOVE);
     }
